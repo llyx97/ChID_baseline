@@ -351,13 +351,14 @@ def main():
         for k in return_dic_keys:
             return_dic[k] = []
 
+        mask_token_len = 4 if not 'para' in data_args.train_file else 10
         for i in range(len(examples['content'])):
             idx = -1
             text = examples['content'][i]
             for j in range(examples['realCount'][i]):
                 return_dic['candidates'].append(examples['candidates'][i][j])
                 idx = text.find(idiom_tag, idx+1)
-                return_dic['content'].append(text[:idx] + tokenizer.mask_token*4 + text[idx+len(idiom_tag):])
+                return_dic['content'].append(text[:idx] + tokenizer.mask_token*mask_token_len + text[idx+len(idiom_tag):])
                 for k, candidate in enumerate(examples['candidates'][i][j]):
                     if candidate == examples['groundTruth'][i][j]:
                         return_dic['labels'].append(k)
@@ -368,11 +369,12 @@ def main():
     def preprocess_function_tokenize(examples):
         first_sentences = examples['content']
         labels = examples[label_column_name]
+        mask_token_len = 4 if not 'para' in data_args.train_file else 10
         # truncate the first sentences.
         for i, sentence in enumerate(first_sentences):
             if len(sentence) <= 500:
                 continue
-            if sentence.find(tokenizer.mask_token*4) > len(sentence) // 2:
+            if sentence.find(tokenizer.mask_token*mask_token_len) > len(sentence) // 2:
                 first_sentences[i] = sentence[-500:]
             else:
                 first_sentences[i] = sentence[:500]
