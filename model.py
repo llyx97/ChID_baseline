@@ -67,7 +67,6 @@ class BertForChID(BertPreTrainedModel):
         candidates: torch.LongTensor of shape `(batch_size, num_choices, 4)`
         candidate_mask: torch.BooleanTensor of shape `(batch_size, seq_len)`
         """
-
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         outputs = self.bert(

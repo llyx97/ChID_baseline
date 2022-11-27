@@ -209,7 +209,7 @@ class DataCollatorForChID:
 
 
 def main():
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    #os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
@@ -411,6 +411,11 @@ def main():
                 num_proc=data_args.preprocessing_num_workers,
                 load_from_cache_file=not data_args.overwrite_cache,
             )
+            #print('#############')
+            #context_lens = np.array([len(data['input_ids']) for data in train_dataset])
+            #avg_len = context_lens.mean()
+            #print(avg_len, sum(context_lens>256), len(train_dataset))
+            #print(aa)
             # for index in range(3):
             #     logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
     if training_args.do_eval:
