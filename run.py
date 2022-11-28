@@ -71,6 +71,10 @@ class ModelArguments:
         default=True,
         metadata={"help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."},
     )
+    loss_over_vocab: bool = field(
+        default=False,
+        metadata={"help": "Whether to compute the CE loss over vocabulary or not."},
+    )
     model_revision: str = field(
         default="main",
         metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
@@ -351,25 +355,65 @@ def main():
         for k in return_dic_keys:
             return_dic[k] = []
 
-        mask_token_len = 4 if not 'para' in data_args.train_file else 10
+        max_idiom_len = 10 if 'para' in data_args.train_file else 4
         for i in range(len(examples['content'])):
             idx = -1
             text = examples['content'][i]
             for j in range(examples['realCount'][i]):
                 return_dic['candidates'].append(examples['candidates'][i][j])
                 idx = text.find(idiom_tag, idx+1)
-                return_dic['content'].append(text[:idx] + tokenizer.mask_token*mask_token_len + text[idx+len(idiom_tag):])
-                for k, candidate in enumerate(examples['candidates'][i][j]):
-                    if candidate == examples['groundTruth'][i][j]:
-                        return_dic['labels'].append(k)
-                        break
+                return_dic['content'].append(text[:idx] + tokenizer.mask_token*max_idiom_len + text[idx+len(idiom_tag):])
+                if "groundTruthID" in examples:
+                    return_dic['labels'].append(examples["groundTruthID"][i][j])
+                else:
+                    for k, candidate in enumerate(examples['candidates'][i][j]):
+                        if candidate == examples['groundTruth'][i][j]:
+                            return_dic['labels'].append(k)
+                            break
         return return_dic
+
+    # Preprocessiong for computing the loss over vocabulary
+    def preprocess_function_resize_loss_vocab(examples):
+        return_dic = {}
+        return_dic_keys = ['candidates', 'content', 'labels']
+        for k in return_dic_keys:
+            return_dic[k] = []
+
+        max_idiom_len = 10 if 'para' in data_args.train_file else 4
+        pad_id = tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0]
+        for i in range(len(examples['content'])):
+            idx = -1
+            text = examples['content'][i]
+            for j in range(examples['realCount'][i]):
+                return_dic['candidates'].append(examples['candidates'][i][j])
+                idx = text.find(idiom_tag, idx+1)
+                return_dic['content'].append(text[:idx] + tokenizer.mask_token*max_idiom_len + text[idx+len(idiom_tag):])
+                # Use the token id as labels, use padding
+                tmp_ids = tokenizer.convert_tokens_to_ids(list(examples['groundTruth'][i][j]))
+                gt_ids = padding(tmp_ids, max_para_len, pad_id)
+                return_dic['labels'].append(gt_ids)
+                #if "groundTruthID" in examples:
+                #    return_dic['labels'].append(examples["groundTruthID"][i][j])
+                #else:
+                #    for k, candidate in enumerate(examples['candidates'][i][j]):
+                #        if candidate == examples['groundTruth'][i][j]:
+                #            return_dic['labels'].append(k)
+                #            break
+        return return_dic
+
+    def padding(inds, max_length, pad_id=0):
+        if len(inds)>max_length:
+            inds = inds[:max_length]
+        padded_inds = [pad_id] * max_length
+        padded_inds[:len(inds)] = inds
+        return padded_inds
 
     # tokenize all instances
     def preprocess_function_tokenize(examples):
         first_sentences = examples['content']
         labels = examples[label_column_name]
         mask_token_len = 4 if not 'para' in data_args.train_file else 10
+        pad_id = tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0]
         # truncate the first sentences.
         for i, sentence in enumerate(first_sentences):
             if len(sentence) <= 500:
@@ -386,7 +430,11 @@ def main():
             truncation=True,
         )
         tokenized_examples["labels"] = labels
-        tokenized_candidates = [[tokenizer.convert_tokens_to_ids(list(candidate)) for candidate in candidates]for candidates in examples['candidates']]
+        if not 'para' in data_args.train_file:
+            tokenized_candidates = [[tokenizer.convert_tokens_to_ids(list(candidate)) for candidate in candidates]for candidates in examples['candidates']]
+        # Padding the variant length idiom paraphrases
+        else:
+            tokenized_candidates = [[padding(tokenizer.convert_tokens_to_ids(list(candidate)), mask_token_len, pad_id) for candidate in candidates]for candidates in examples['candidates']]
         tokenized_examples["candidates"] = tokenized_candidates
         return tokenized_examples
 
@@ -398,11 +446,14 @@ def main():
         if data_args.max_train_samples is not None:
             max_train_samples = min(len(train_dataset), data_args.max_train_samples)
             train_dataset = train_dataset.select(range(max_train_samples))
+
+        func_resize = preprocess_function_loss_vocab if model_args.loss_over_vocab else preprocess_function_resize
+        remove_columns = ["groundTruth", "realCount"] if not 'para' in data_args.train_file else ["groundTruth", "realCount", "groundTruthID"]
         with training_args.main_process_first(desc="train dataset map pre-processing"):
             train_dataset = train_dataset.map(
-                preprocess_function_resize,
+                func_resize,
                 batched=True,
-                remove_columns=["groundTruth", "realCount"],
+                remove_columns=remove_columns,
                 num_proc=data_args.preprocessing_num_workers,
                 load_from_cache_file=not data_args.overwrite_cache,
             )
@@ -427,11 +478,14 @@ def main():
         if data_args.max_eval_samples is not None:
             max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
             eval_dataset = eval_dataset.select(range(max_eval_samples))
+
+        func_resize = preprocess_function_resize
+        remove_columns = ["groundTruth", "realCount"] if not 'para' in data_args.train_file else ["groundTruth", "realCount", "groundTruthID"]
         with training_args.main_process_first(desc="validation dataset map pre-processing"):
             eval_dataset = eval_dataset.map(
-                preprocess_function_resize,
+                func_resize,
                 batched=True,
-                remove_columns=["groundTruth", "realCount"],
+                remove_columns=remove_columns,
                 num_proc=data_args.preprocessing_num_workers,
                 load_from_cache_file=not data_args.overwrite_cache,
             )
@@ -444,9 +498,9 @@ def main():
         test_dataset = raw_datasets["test"]
         with training_args.main_process_first(desc="test dataset map pre-processing"):
             test_dataset = test_dataset.map(
-                preprocess_function_resize,
+                func_resize,
                 batched=True,
-                remove_columns=["groundTruth", "realCount"],
+                remove_columns=remove_columns,
                 num_proc=data_args.preprocessing_num_workers,
                 load_from_cache_file=not data_args.overwrite_cache,
             )
@@ -470,6 +524,9 @@ def main():
     def compute_metrics(eval_predictions):
         predictions, label_ids = eval_predictions
         preds = np.argmax(predictions, axis=1)
+        correct_indices = (preds == label_ids).nonzero()[0]
+        #np.save('correct_indices_base.npy', np.array(correct_indices))
+        #print(correct_indices)
         return {"accuracy": (preds == label_ids).astype(np.float32).mean().item()}
 
     # Initialize our Trainer

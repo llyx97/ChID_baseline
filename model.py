@@ -89,14 +89,32 @@ class BertForChID(BertPreTrainedModel):
         masked_lm_loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss() 
+            batch_size = prediction_scores.size(0)
             candidate_prediction_scores = torch.masked_select(prediction_scores, candidate_mask.unsqueeze(-1)).reshape(-1, prediction_scores.shape[-1], 1) # (Batch_size x 4, Vocab_size, 1)
             candidate_indices = candidates.transpose(-1, -2).reshape(-1, candidates.shape[1]) # (Batch_size x 4, num_choices)
-            candidate_logits = batched_index_select(candidate_prediction_scores, candidate_indices).squeeze(-1).reshape(prediction_scores.shape[0], 4, -1).transpose(-1, -2) # (Batch_size, num_choices, 4)
+            mask_len = int(candidate_indices.size(0)/batch_size)
+            candidate_logits = batched_index_select(candidate_prediction_scores, candidate_indices).squeeze(-1).reshape(prediction_scores.shape[0], mask_len, -1).transpose(-1, -2) # (Batch_size, num_choices, 4)
+            # mask inside the range mask_len, positions of paraphrase tokens are 1 and the paddings are 0
+            idiom_mask = candidate_indices.reshape(batch_size, mask_len, -1)!=0
+            candidate_final_scores = torch.sum(F.log_softmax(candidate_logits, dim=-2) * idiom_mask.transpose(-2,-1), dim=-1) # (Batch_size, num_choices)
+            cand_lens = idiom_mask.sum(dim=1)
+            candidate_final_scores.div_(cand_lens)
 
-            candidate_labels = labels.reshape(labels.shape[0], 1).repeat(1, 4) # (Batch_size, 4)
-            candidate_final_scores = torch.sum(F.log_softmax(candidate_logits, dim=-2), dim=-1) # (Batch_size, num_choices)
+            if len(labels.size())>1:       # Computing CE loss over the vacabulary
+                vocab_size = candidate_prediction_scores.size(1)
+                weights = torch.ones(vocab_size).to(candidate_prediction_scores.device)
+                weights[0] = 0
+                loss_fct = CrossEntropyLoss(weights)
+                labels = labels.reshape(-1)
+                masked_lm_loss = loss_fct(candidate_prediction_scores.squeeze(-1), labels)
+            else:                      # Computing CE loss over the candidates
+                #candidate_indices = candidates.transpose(-1, -2).reshape(-1, candidates.shape[1]) # (Batch_size x 4, num_choices)
+                #candidate_logits = batched_index_select(candidate_prediction_scores, candidate_indices).squeeze(-1).reshape(prediction_scores.shape[0], 4, -1).transpose(-1, -2) # (Batch_size, num_choices, 4)
 
-            masked_lm_loss = loss_fct(candidate_logits, candidate_labels)
+                candidate_labels = labels.reshape(labels.shape[0], 1).repeat(1, mask_len) # (Batch_size, 4)
+                #candidate_final_scores = torch.sum(F.log_softmax(candidate_logits, dim=-2), dim=-1) # (Batch_size, num_choices)
+
+                masked_lm_loss = loss_fct(candidate_logits, candidate_labels)
 
         if not return_dict:
             output = (prediction_scores,) + outputs[2:]
