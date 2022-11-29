@@ -390,7 +390,7 @@ def main():
                 return_dic['content'].append(text[:idx] + tokenizer.mask_token*max_idiom_len + text[idx+len(idiom_tag):])
                 # Use the token id as labels, use padding
                 tmp_ids = tokenizer.convert_tokens_to_ids(list(examples['groundTruth'][i][j]))
-                gt_ids = padding(tmp_ids, max_para_len, pad_id)
+                gt_ids = padding(tmp_ids, max_idiom_len, pad_id)
                 return_dic['labels'].append(gt_ids)
                 #if "groundTruthID" in examples:
                 #    return_dic['labels'].append(examples["groundTruthID"][i][j])
@@ -447,7 +447,7 @@ def main():
             max_train_samples = min(len(train_dataset), data_args.max_train_samples)
             train_dataset = train_dataset.select(range(max_train_samples))
 
-        func_resize = preprocess_function_loss_vocab if model_args.loss_over_vocab else preprocess_function_resize
+        func_resize = preprocess_function_resize_loss_vocab if model_args.loss_over_vocab else preprocess_function_resize
         remove_columns = ["groundTruth", "realCount"] if not 'para' in data_args.train_file else ["groundTruth", "realCount", "groundTruthID"]
         with training_args.main_process_first(desc="train dataset map pre-processing"):
             train_dataset = train_dataset.map(
@@ -496,6 +496,9 @@ def main():
                 load_from_cache_file=not data_args.overwrite_cache,
             )
         test_dataset = raw_datasets["test"]
+        if data_args.max_eval_samples is not None:
+            max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
+            test_dataset = test_dataset.select(range(max_eval_samples))
         with training_args.main_process_first(desc="test dataset map pre-processing"):
             test_dataset = test_dataset.map(
                 func_resize,
@@ -564,6 +567,13 @@ def main():
     # Evaluation
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
+
+        #for split in ['valid']:
+        #    dataset = eval_dataset if split=='valid' else test_dataset
+        #    outputs = trainer.evaluation_loop(trainer.get_eval_dataloader(dataset), description="Prediction")
+        #    preds = outputs.predictions
+        #    np.save(os.path.join(training_args.output_dir, split), preds)
+        #print(aa)
 
         metrics = trainer.evaluate(eval_dataset=test_dataset)
         metrics["test_samples"] = len(test_dataset)

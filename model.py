@@ -100,6 +100,7 @@ class BertForChID(BertPreTrainedModel):
             cand_lens = idiom_mask.sum(dim=1)
             candidate_final_scores.div_(cand_lens)
 
+
             if len(labels.size())>1:       # Computing CE loss over the vacabulary
                 vocab_size = candidate_prediction_scores.size(1)
                 weights = torch.ones(vocab_size).to(candidate_prediction_scores.device)

@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=5 python run.py \
+CUDA_VISIBLE_DEVICES=2 python run.py \
 --model_name_or_path hfl/chinese-roberta-wwm-ext \
 --do_eval \
 --train_file data/ChID/train_para.json \
@@ -9,7 +9,7 @@ CUDA_VISIBLE_DEVICES=5 python run.py \
 --learning_rate 5e-5 \
 --evaluation_strategy epoch \
 --num_train_epochs 5 \
---output_dir ./tmp \
+--output_dir ./tmp/para \
 --per_device_eval_batch_size 16 \
 --per_device_train_batch_size 8 \
 --seed 42 \
