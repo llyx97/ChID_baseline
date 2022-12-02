@@ -101,7 +101,7 @@ class BertForChID(BertPreTrainedModel):
             candidate_final_scores.div_(cand_lens)
 
 
-            if len(labels.size())>1:       # Computing CE loss over the vacabulary
+            if len(labels.size())>1:       # Computing CE loss over the vocabulary
                 vocab_size = candidate_prediction_scores.size(1)
                 weights = torch.ones(vocab_size).to(candidate_prediction_scores.device)
                 weights[0] = 0
